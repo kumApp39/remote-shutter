@@ -1,0 +1,755 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0b1220">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="リモートシャッター">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<title>リモートシャッター</title>
+<style>
+  :root {
+    --bg: #0b1220;
+    --panel: #16213a;
+    --text: #f1f5f9;
+    --sub: #94a3b8;
+    --accent: #38bdf8;
+    --accent-deep: #0284c7;
+    --ok: #4ade80;
+    --warn: #fbbf24;
+    --rec: #ef4444;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    width: 100%; height: 100%;
+    background: var(--bg); color: var(--text);
+    font-family: "Hiragino Maru Gothic ProN", "BIZ UDGothic", "Yu Gothic UI", sans-serif;
+    overflow: hidden; overscroll-behavior: none;
+    touch-action: manipulation;
+    -webkit-user-select: none; user-select: none;
+  }
+  .screen { position: fixed; inset: 0; display: none; flex-direction: column; }
+  .screen.active { display: flex; }
+
+  /* ===== モード選択 ===== */
+  #screen-start { align-items: center; justify-content: center; gap: 24px; padding: 24px; }
+  #screen-start h1 { font-size: 32px; letter-spacing: 2px; }
+  #screen-start p.note { color: var(--sub); font-size: 15px; text-align: center; line-height: 1.6; }
+  .mode-btns { display: flex; gap: 20px; width: 100%; max-width: 720px; }
+  .mode-btn {
+    flex: 1; min-height: 220px; border-radius: 28px;
+    background: var(--panel); color: var(--text);
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px;
+    font-family: inherit; cursor: pointer; border: 3px solid #24335c;
+  }
+  .mode-btn .emoji { font-size: 64px; }
+  .mode-btn .label { font-size: 28px; font-weight: bold; }
+  .mode-btn .desc { font-size: 15px; color: var(--sub); }
+  .mode-btn:active { background: #1e2c4f; }
+
+  /* ===== 共通部品 ===== */
+  .chip {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 8px 16px; border-radius: 999px; font-size: 15px;
+    background: var(--panel); color: var(--sub);
+  }
+  .chip.ok { color: var(--ok); }
+  .chip .dot { width: 10px; height: 10px; border-radius: 50%; background: currentColor; }
+  .btn-back {
+    position: absolute; top: max(12px, env(safe-area-inset-top)); left: 12px; z-index: 20;
+    background: rgba(22,33,58,.8); color: var(--sub); border: none; border-radius: 12px;
+    padding: 10px 16px; font-size: 15px; font-family: inherit; cursor: pointer;
+  }
+
+  /* ===== カメラ側 ===== */
+  #screen-camera { background: #000; }
+  #cam-preview-wrap { flex: 1; position: relative; min-height: 0; }
+  #cam-preview { width: 100%; height: 100%; object-fit: contain; background: #000; }
+  #cam-overlay {
+    position: absolute; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 12px; pointer-events: none;
+  }
+  #cam-code-box {
+    background: rgba(11,18,32,.85); border-radius: 24px; padding: 20px 36px; text-align: center;
+  }
+  #cam-code-box .cap { font-size: 18px; color: var(--sub); margin-bottom: 6px; }
+  #cam-code { font-size: 72px; font-weight: bold; letter-spacing: 12px; color: var(--accent); }
+  #cam-code-box .hint { font-size: 14px; color: var(--sub); margin-top: 8px; line-height: 1.5; }
+  #cam-status { position: absolute; top: max(12px, env(safe-area-inset-top)); right: 12px; }
+  #cam-rec-badge {
+    position: absolute; top: max(12px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%);
+    background: var(--rec); color: #fff; padding: 8px 20px; border-radius: 999px;
+    font-size: 16px; font-weight: bold; display: none; align-items: center; gap: 8px;
+  }
+  #cam-rec-badge.on { display: inline-flex; }
+  @keyframes blink { 50% { opacity: .3; } }
+  .rec-dot { width: 12px; height: 12px; border-radius: 50%; background: #fff; animation: blink 1s infinite; }
+
+  #cam-bottom {
+    background: var(--bg); padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .cam-controls { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .seg { display: flex; background: var(--panel); border-radius: 14px; padding: 4px; }
+  .seg button {
+    border: none; background: transparent; color: var(--sub); font-family: inherit;
+    font-size: 17px; font-weight: bold; padding: 12px 22px; border-radius: 10px; cursor: pointer;
+  }
+  .seg button.on { background: var(--accent-deep); color: #fff; }
+  .toggle-line { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--sub); }
+  .toggle-line input { width: 22px; height: 22px; accent-color: var(--accent); }
+  #cam-count { margin-left: auto; font-size: 14px; color: var(--sub); }
+  #gallery {
+    display: flex; gap: 8px; overflow-x: auto; -webkit-overflow-scrolling: touch;
+    min-height: 74px;
+  }
+  #gallery:empty::after {
+    content: "とった しゃしん・どうがが ここに ならびます(共有ボタンで iPad に保存できます)";
+    color: #475569; font-size: 13px; align-self: center;
+  }
+  .thumb {
+    width: 96px; height: 72px; flex: 0 0 auto; border-radius: 10px; overflow: hidden;
+    position: relative; border: 2px solid #334155; background: #000; cursor: pointer;
+  }
+  .thumb img, .thumb video { width: 100%; height: 100%; object-fit: cover; pointer-events: none; }
+  .thumb .vid-mark {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    font-size: 24px; color: #fff; text-shadow: 0 0 6px #000;
+  }
+
+  /* メディア確認モーダル */
+  #media-modal {
+    position: fixed; inset: 0; background: rgba(0,0,0,.9); z-index: 50;
+    display: none; flex-direction: column; align-items: center; justify-content: center; gap: 16px; padding: 20px;
+  }
+  #media-modal.active { display: flex; }
+  #media-modal .media-box { max-width: 100%; max-height: 65%; display: flex; justify-content: center; }
+  #media-modal img, #media-modal video { max-width: 100%; max-height: 100%; border-radius: 12px; }
+  .modal-btns { display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; }
+  .modal-btns button {
+    border: none; border-radius: 16px; padding: 16px 28px; font-family: inherit;
+    font-size: 18px; font-weight: bold; cursor: pointer;
+  }
+  .btn-share { background: var(--accent-deep); color: #fff; }
+  .btn-del { background: #7f1d1d; color: #fecaca; }
+  .btn-close { background: var(--panel); color: var(--text); }
+
+  /* ===== リモコン側: あいことば入力 ===== */
+  #screen-join { align-items: center; justify-content: center; gap: 18px; padding: 20px; }
+  #screen-join h2 { font-size: 24px; }
+  #join-display {
+    display: flex; gap: 14px;
+  }
+  .code-slot {
+    width: 56px; height: 72px; border-radius: 14px; background: var(--panel);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 40px; font-weight: bold; color: var(--accent);
+    border: 2px solid #334155;
+  }
+  #join-msg { font-size: 16px; color: var(--warn); min-height: 24px; }
+  #keypad { display: grid; grid-template-columns: repeat(3, 92px); gap: 12px; }
+  #keypad button {
+    height: 76px; border: none; border-radius: 18px; background: var(--panel); color: var(--text);
+    font-size: 32px; font-weight: bold; font-family: inherit; cursor: pointer;
+  }
+  #keypad button:active { background: #1e2c4f; }
+  #keypad button.fn { font-size: 24px; color: var(--sub); }
+
+  /* ===== リモコン側: ビューア ===== */
+  #screen-remote { background: #000; }
+  #remote-topbar {
+    position: absolute; top: 0; left: 0; right: 0; z-index: 10;
+    display: flex; align-items: center; justify-content: center; gap: 12px;
+    padding: calc(8px + env(safe-area-inset-top)) 12px 8px;
+    pointer-events: none;
+  }
+  #remote-seg { pointer-events: auto; }
+  #remote-seg button { font-size: 22px; padding: 16px 34px; }
+  #remote-seg.hidden { display: none; }
+  #remote-exit {
+    position: absolute; left: 12px; top: calc(8px + env(safe-area-inset-top));
+    pointer-events: auto; background: rgba(22,33,58,.6); color: #64748b;
+    border: none; border-radius: 12px; padding: 12px 14px; font-size: 14px; font-family: inherit;
+  }
+  #tap-area { position: absolute; inset: 0; }
+  #remote-video { width: 100%; height: 100%; object-fit: cover; background: #000; }
+  #remote-hint {
+    position: absolute; bottom: calc(24px + env(safe-area-inset-bottom)); left: 0; right: 0;
+    text-align: center; font-size: 20px; color: rgba(241,245,249,.85);
+    text-shadow: 0 1px 4px #000; pointer-events: none;
+  }
+  #remote-rec-frame { position: absolute; inset: 0; border: 8px solid var(--rec); display: none; pointer-events: none; }
+  #remote-rec-frame.on { display: block; }
+  #remote-rec-badge {
+    position: absolute; top: calc(12px + env(safe-area-inset-top)); right: 12px;
+    background: var(--rec); color: #fff; padding: 8px 18px; border-radius: 999px;
+    font-size: 16px; font-weight: bold; display: none; align-items: center; gap: 8px; pointer-events: none;
+  }
+  #remote-rec-badge.on { display: inline-flex; }
+  #flash { position: fixed; inset: 0; background: #fff; opacity: 0; pointer-events: none; z-index: 60; }
+  #flash.go { animation: flashAnim .45s ease-out; }
+  @keyframes flashAnim { 0% { opacity: 1; } 100% { opacity: 0; } }
+
+  /* 全画面メッセージオーバーレイ */
+  .big-overlay {
+    position: absolute; inset: 0; z-index: 30; background: rgba(11,18,32,.92);
+    display: none; flex-direction: column; align-items: center; justify-content: center; gap: 20px; padding: 24px;
+    text-align: center;
+  }
+  .big-overlay.active { display: flex; }
+  .big-overlay .msg { font-size: 26px; line-height: 1.6; }
+  .big-overlay button {
+    border: none; border-radius: 20px; background: var(--accent-deep); color: #fff;
+    font-size: 22px; font-weight: bold; font-family: inherit; padding: 20px 44px; cursor: pointer;
+  }
+  .spinner {
+    width: 48px; height: 48px; border-radius: 50%;
+    border: 5px solid #334155; border-top-color: var(--accent);
+    animation: spin 1s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+
+<!-- モード選択 -->
+<section id="screen-start" class="screen active">
+  <h1>📷 リモートシャッター</h1>
+  <div class="mode-btns">
+    <button class="mode-btn" id="btn-mode-camera">
+      <span class="emoji">📷</span>
+      <span class="label">カメラ</span>
+      <span class="desc">さんきゃくに おく iPad</span>
+    </button>
+    <button class="mode-btn" id="btn-mode-remote">
+      <span class="emoji">🎮</span>
+      <span class="label">リモコン</span>
+      <span class="desc">てもとで シャッターを おす iPad</span>
+    </button>
+  </div>
+  <p class="note">2だいの iPad を おなじ Wi-Fi(またはテザリング)に つないでから はじめてください。</p>
+</section>
+
+<!-- カメラ側 -->
+<section id="screen-camera" class="screen">
+  <button class="btn-back" id="cam-back">← もどる</button>
+  <div id="cam-preview-wrap">
+    <video id="cam-preview" autoplay playsinline muted></video>
+    <div id="cam-overlay">
+      <div id="cam-code-box">
+        <div class="cap">あいことば</div>
+        <div id="cam-code">----</div>
+        <div class="hint">リモコンの iPad で この4つの すうじを いれてね</div>
+      </div>
+    </div>
+    <span class="chip" id="cam-status"><span class="dot"></span><span id="cam-status-text">じゅんびちゅう…</span></span>
+    <div id="cam-rec-badge"><span class="rec-dot"></span>ろくがちゅう</div>
+  </div>
+  <div id="cam-bottom">
+    <div class="cam-controls">
+      <div class="seg" id="cam-seg">
+        <button data-mode="photo" class="on">しゃしん</button>
+        <button data-mode="video">どうが</button>
+      </div>
+      <label class="toggle-line">
+        <input type="checkbox" id="allow-toggle" checked>
+        リモコンでも きりかえOK
+      </label>
+      <span id="cam-count"></span>
+    </div>
+    <div id="gallery"></div>
+  </div>
+</section>
+
+<!-- リモコン側: あいことば入力 -->
+<section id="screen-join" class="screen">
+  <button class="btn-back" id="join-back">← もどる</button>
+  <h2>あいことばを いれてね</h2>
+  <div id="join-display">
+    <div class="code-slot"></div><div class="code-slot"></div><div class="code-slot"></div><div class="code-slot"></div>
+  </div>
+  <div id="join-msg"></div>
+  <div id="keypad">
+    <button>1</button><button>2</button><button>3</button>
+    <button>4</button><button>5</button><button>6</button>
+    <button>7</button><button>8</button><button>9</button>
+    <button class="fn" id="key-clear">けす</button><button>0</button><button class="fn" id="key-bs">⌫</button>
+  </div>
+  <div class="big-overlay" id="join-wait">
+    <div class="spinner"></div>
+    <div class="msg">カメラを さがしています…</div>
+  </div>
+</section>
+
+<!-- リモコン側: ビューア -->
+<section id="screen-remote" class="screen">
+  <video id="remote-video" autoplay playsinline muted></video>
+  <div id="tap-area"></div>
+  <div id="remote-rec-frame"></div>
+  <div id="remote-topbar">
+    <button id="remote-exit">おわる</button>
+    <div class="seg" id="remote-seg">
+      <button data-mode="photo" class="on">しゃしん</button>
+      <button data-mode="video">どうが</button>
+    </div>
+  </div>
+  <div id="remote-rec-badge"><span class="rec-dot"></span>ろくがちゅう</div>
+  <div id="remote-hint">がめんの どこを タップしても シャッターが きれるよ</div>
+  <div class="big-overlay" id="remote-play-overlay">
+    <div class="msg">じゅんびが できました</div>
+    <button id="btn-start-view">タップして スタート</button>
+  </div>
+  <div class="big-overlay" id="remote-lost">
+    <div class="msg">カメラとの せつぞくが きれました</div>
+    <button id="btn-rejoin">もういちど つなぐ</button>
+  </div>
+</section>
+
+<div id="flash"></div>
+
+<!-- メディア確認モーダル(カメラ側) -->
+<div id="media-modal">
+  <div class="media-box" id="modal-media"></div>
+  <div class="modal-btns">
+    <button class="btn-share" id="modal-share">📤 共有・保存</button>
+    <button class="btn-del" id="modal-del">けす</button>
+    <button class="btn-close" id="modal-close">とじる</button>
+  </div>
+</div>
+
+<script src="peerjs.min.js"></script>
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const PEER_PREFIX = "kuma-rshutter-";
+const LOCK_MS = 1500; // 連打防止(チャタリング防止)の無効化時間
+
+function showScreen(id) {
+  document.querySelectorAll(".screen").forEach(s => s.classList.remove("active"));
+  $(id).classList.add("active");
+}
+
+/* ---------- 画面スリープ防止 ---------- */
+let wakeLock = null;
+async function keepAwake() {
+  try {
+    if ("wakeLock" in navigator) {
+      wakeLock = await navigator.wakeLock.request("screen");
+    }
+  } catch (e) { /* 非対応でも動作に支障なし */ }
+}
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && wakeLock !== null) keepAwake();
+});
+
+/* ---------- 効果音(WebAudio合成・音源ファイル不要) ---------- */
+let audioCtx = null;
+function ensureAudio() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (audioCtx.state === "suspended") audioCtx.resume();
+}
+function playShutter() {
+  if (!audioCtx) return;
+  const t = audioCtx.currentTime;
+  // カシャッ: 短いノイズバースト2回
+  for (const [off, dur, vol] of [[0, 0.03, 0.5], [0.07, 0.05, 0.35]]) {
+    const len = Math.floor(audioCtx.sampleRate * dur);
+    const buf = audioCtx.createBuffer(1, len, audioCtx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
+    const src = audioCtx.createBufferSource();
+    src.buffer = buf;
+    const g = audioCtx.createGain();
+    g.gain.value = vol;
+    src.connect(g).connect(audioCtx.destination);
+    src.start(t + off);
+  }
+}
+function playBeep(up) {
+  if (!audioCtx) return;
+  const t = audioCtx.currentTime;
+  const o = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+  o.frequency.setValueAtTime(up ? 660 : 880, t);
+  o.frequency.linearRampToValueAtTime(up ? 880 : 660, t + 0.15);
+  g.gain.setValueAtTime(0.25, t);
+  g.gain.linearRampToValueAtTime(0, t + 0.2);
+  o.connect(g).connect(audioCtx.destination);
+  o.start(t); o.stop(t + 0.2);
+}
+function doFlash() {
+  const f = $("flash");
+  f.classList.remove("go");
+  void f.offsetWidth; // アニメーション再始動
+  f.classList.add("go");
+}
+
+/* ======================================================
+   カメラ側
+====================================================== */
+const cam = {
+  peer: null, conn: null, call: null, stream: null,
+  mode: "photo", recorder: null, chunks: [], recording: false,
+  items: [], // {blob, url, kind:'photo'|'video', name}
+};
+
+$("btn-mode-camera").addEventListener("click", async () => {
+  ensureAudio();
+  showScreen("screen-camera");
+  keepAwake();
+  await startCamera();
+});
+
+async function startCamera() {
+  $("cam-status-text").textContent = "じゅんびちゅう…";
+  try {
+    try {
+      cam.stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+        audio: true,
+      });
+    } catch (e) {
+      // マイク拒否時は映像のみで続行
+      cam.stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+      });
+    }
+  } catch (e) {
+    alert("カメラを つかえませんでした。せっていで カメラの きょかを ONにしてください。");
+    location.reload();
+    return;
+  }
+  $("cam-preview").srcObject = cam.stream;
+
+  const code = String(Math.floor(1000 + Math.random() * 9000));
+  cam.peer = new Peer(PEER_PREFIX + code, { debug: 1 });
+
+  cam.peer.on("open", () => {
+    $("cam-code").textContent = code;
+    setCamStatus(false);
+  });
+  cam.peer.on("connection", (conn) => {
+    if (cam.conn && cam.conn.open) { conn.close(); return; } // 2台目以降のリモコンは受け付けない
+    cam.conn = conn;
+    conn.on("open", () => {
+      setCamStatus(true);
+      $("cam-code-box").style.display = "none";
+      sendToRemote({ t: "mode", v: cam.mode });
+      sendToRemote({ t: "allow", v: $("allow-toggle").checked });
+      cam.call = cam.peer.call(conn.peer, cam.stream);
+    });
+    conn.on("data", handleRemoteCmd);
+    conn.on("close", remoteGone);
+    conn.on("error", remoteGone);
+  });
+  cam.peer.on("disconnected", () => { try { cam.peer.reconnect(); } catch (e) {} });
+  cam.peer.on("error", (err) => {
+    if (err.type === "unavailable-id") {
+      // まれにIDが衝突したら作り直す
+      cam.peer.destroy(); startPeerAgain();
+    } else {
+      $("cam-status-text").textContent = "つうしんエラー: " + err.type;
+    }
+  });
+}
+function startPeerAgain() { location.reload(); }
+
+function remoteGone() {
+  cam.conn = null;
+  if (cam.recording) stopRecording();
+  setCamStatus(false);
+  $("cam-code-box").style.display = "";
+}
+function setCamStatus(connected) {
+  const chip = $("cam-status");
+  chip.classList.toggle("ok", connected);
+  $("cam-status-text").textContent = connected ? "リモコンと つながったよ" : "リモコンを まっています…";
+}
+function sendToRemote(obj) {
+  if (cam.conn && cam.conn.open) cam.conn.send(JSON.stringify(obj));
+}
+
+function handleRemoteCmd(raw) {
+  let msg;
+  try { msg = JSON.parse(raw); } catch (e) { return; }
+  if (msg.t === "photo") takePhoto();
+  else if (msg.t === "video-start") startRecording();
+  else if (msg.t === "video-stop") stopRecording();
+  else if (msg.t === "mode" && $("allow-toggle").checked) setCamMode(msg.v, false);
+}
+
+/* --- 静止画 --- */
+function takePhoto() {
+  const v = $("cam-preview");
+  if (!v.videoWidth) return;
+  const c = document.createElement("canvas");
+  c.width = v.videoWidth; c.height = v.videoHeight;
+  c.getContext("2d").drawImage(v, 0, 0);
+  c.toBlob((blob) => {
+    if (!blob) return;
+    addItem(blob, "photo");
+    doFlash();
+  }, "image/jpeg", 0.92);
+}
+
+/* --- 動画 --- */
+function pickMime() {
+  const cands = ["video/mp4;codecs=avc1", "video/mp4", "video/webm;codecs=vp9", "video/webm"];
+  for (const m of cands) {
+    if (window.MediaRecorder && MediaRecorder.isTypeSupported(m)) return m;
+  }
+  return "";
+}
+function startRecording() {
+  if (cam.recording || !cam.stream) return;
+  const mime = pickMime();
+  try {
+    cam.recorder = mime ? new MediaRecorder(cam.stream, { mimeType: mime }) : new MediaRecorder(cam.stream);
+  } catch (e) {
+    sendToRemote({ t: "err", v: "このiPadでは どうがを ろくができません" });
+    return;
+  }
+  cam.chunks = [];
+  cam.recorder.ondataavailable = (e) => { if (e.data.size > 0) cam.chunks.push(e.data); };
+  cam.recorder.onstop = () => {
+    const type = cam.recorder.mimeType || "video/mp4";
+    const blob = new Blob(cam.chunks, { type });
+    addItem(blob, "video");
+  };
+  cam.recorder.start();
+  cam.recording = true;
+  $("cam-rec-badge").classList.add("on");
+  sendToRemote({ t: "rec", on: true });
+}
+function stopRecording() {
+  if (!cam.recording) return;
+  cam.recording = false;
+  try { cam.recorder.stop(); } catch (e) {}
+  $("cam-rec-badge").classList.remove("on");
+  sendToRemote({ t: "rec", on: false });
+}
+
+/* --- モード --- */
+document.querySelectorAll("#cam-seg button").forEach(b => {
+  b.addEventListener("click", () => setCamMode(b.dataset.mode, true));
+});
+function setCamMode(mode, notify) {
+  if (cam.recording) stopRecording();
+  cam.mode = mode;
+  document.querySelectorAll("#cam-seg button").forEach(b => b.classList.toggle("on", b.dataset.mode === mode));
+  if (notify) sendToRemote({ t: "mode", v: mode });
+}
+$("allow-toggle").addEventListener("change", () => {
+  sendToRemote({ t: "allow", v: $("allow-toggle").checked });
+});
+
+/* --- ギャラリー --- */
+function addItem(blob, kind) {
+  const stamp = new Date();
+  const pad = (n) => String(n).padStart(2, "0");
+  const ext = kind === "photo" ? "jpg" : (blob.type.includes("mp4") ? "mp4" : "webm");
+  const name = `shutter_${stamp.getFullYear()}${pad(stamp.getMonth()+1)}${pad(stamp.getDate())}_${pad(stamp.getHours())}${pad(stamp.getMinutes())}${pad(stamp.getSeconds())}.${ext}`;
+  const item = { blob, url: URL.createObjectURL(blob), kind, name };
+  cam.items.push(item);
+  renderGallery();
+}
+function renderGallery() {
+  const g = $("gallery");
+  g.innerHTML = "";
+  cam.items.forEach((item, i) => {
+    const d = document.createElement("div");
+    d.className = "thumb";
+    if (item.kind === "photo") {
+      d.innerHTML = `<img src="${item.url}" alt="">`;
+    } else {
+      d.innerHTML = `<video src="${item.url}" muted playsinline></video><span class="vid-mark">▶</span>`;
+    }
+    d.addEventListener("click", () => openModal(i));
+    g.appendChild(d);
+  });
+  const p = cam.items.filter(x => x.kind === "photo").length;
+  const vd = cam.items.length - p;
+  $("cam-count").textContent = cam.items.length ? `しゃしん ${p}まい / どうが ${vd}ほん` : "";
+}
+
+let modalIndex = -1;
+function openModal(i) {
+  modalIndex = i;
+  const item = cam.items[i];
+  const box = $("modal-media");
+  box.innerHTML = item.kind === "photo"
+    ? `<img src="${item.url}" alt="">`
+    : `<video src="${item.url}" controls playsinline></video>`;
+  $("media-modal").classList.add("active");
+}
+$("modal-close").addEventListener("click", () => $("media-modal").classList.remove("active"));
+$("modal-share").addEventListener("click", async () => {
+  const item = cam.items[modalIndex];
+  if (!item) return;
+  const file = new File([item.blob], item.name, { type: item.blob.type });
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    try { await navigator.share({ files: [file] }); } catch (e) { /* キャンセル */ }
+  } else {
+    const a = document.createElement("a");
+    a.href = item.url; a.download = item.name;
+    document.body.appendChild(a); a.click(); a.remove();
+  }
+});
+$("modal-del").addEventListener("click", () => {
+  const item = cam.items[modalIndex];
+  if (!item) return;
+  if (!confirm("この1まいを けしますか?(もとに もどせません)")) return;
+  URL.revokeObjectURL(item.url);
+  cam.items.splice(modalIndex, 1);
+  $("media-modal").classList.remove("active");
+  renderGallery();
+});
+
+$("cam-back").addEventListener("click", () => {
+  if (cam.items.length && !confirm("ほぞんしていない しゃしん・どうがは きえます。もどりますか?")) return;
+  location.reload();
+});
+
+/* ======================================================
+   リモコン側
+====================================================== */
+const rc = {
+  peer: null, conn: null, code: "",
+  mode: "photo", locked: false, recording: false, allowToggle: true,
+};
+
+$("btn-mode-remote").addEventListener("click", () => {
+  ensureAudio();
+  showScreen("screen-join");
+  keepAwake();
+});
+$("join-back").addEventListener("click", () => location.reload());
+
+document.querySelectorAll("#keypad button").forEach(b => {
+  b.addEventListener("click", () => {
+    ensureAudio();
+    if (b.id === "key-clear") { rc.code = ""; }
+    else if (b.id === "key-bs") { rc.code = rc.code.slice(0, -1); }
+    else if (rc.code.length < 4) { rc.code += b.textContent; }
+    renderCode();
+    if (rc.code.length === 4) joinCamera();
+  });
+});
+function renderCode() {
+  document.querySelectorAll(".code-slot").forEach((s, i) => s.textContent = rc.code[i] || "");
+}
+
+function joinCamera() {
+  $("join-wait").classList.add("active");
+  $("join-msg").textContent = "";
+  rc.peer = new Peer({ debug: 1 });
+  const giveUp = setTimeout(() => joinFail("カメラが みつかりませんでした"), 15000);
+
+  rc.peer.on("open", () => {
+    const conn = rc.peer.connect(PEER_PREFIX + rc.code, { reliable: true });
+    rc.conn = conn;
+    conn.on("open", () => {
+      clearTimeout(giveUp);
+      showScreen("screen-remote");
+      $("join-wait").classList.remove("active");
+    });
+    conn.on("data", handleCamMsg);
+    conn.on("close", showLost);
+  });
+  rc.peer.on("call", (call) => {
+    call.answer();
+    call.on("stream", (stream) => {
+      const v = $("remote-video");
+      v.srcObject = stream;
+      v.play().catch(() => $("remote-play-overlay").classList.add("active"));
+    });
+  });
+  rc.peer.on("error", (err) => {
+    if (err.type === "peer-unavailable") { clearTimeout(giveUp); joinFail("あいことばが ちがうみたい。もういちど たしかめてね"); }
+    else if (err.type !== "disconnected") { clearTimeout(giveUp); joinFail("つうしんエラー: " + err.type); }
+  });
+}
+function joinFail(msg) {
+  $("join-wait").classList.remove("active");
+  $("join-msg").textContent = msg;
+  rc.code = ""; renderCode();
+  if (rc.peer) { try { rc.peer.destroy(); } catch (e) {} rc.peer = null; }
+}
+$("btn-start-view").addEventListener("click", () => {
+  ensureAudio();
+  $("remote-video").play().catch(() => {});
+  $("remote-play-overlay").classList.remove("active");
+});
+
+function handleCamMsg(raw) {
+  let msg;
+  try { msg = JSON.parse(raw); } catch (e) { return; }
+  if (msg.t === "mode") setRemoteMode(msg.v, false);
+  else if (msg.t === "allow") {
+    rc.allowToggle = msg.v;
+    $("remote-seg").classList.toggle("hidden", !msg.v);
+  }
+  else if (msg.t === "rec") setRecUI(msg.on);
+  else if (msg.t === "err") alert(msg.v);
+}
+function setRemoteMode(mode, notify) {
+  rc.mode = mode;
+  document.querySelectorAll("#remote-seg button").forEach(b => b.classList.toggle("on", b.dataset.mode === mode));
+  $("remote-hint").textContent = mode === "photo"
+    ? "がめんの どこを タップしても シャッターが きれるよ"
+    : "タップで ろくが スタート / もういちど タップで ストップ";
+  if (notify && rc.conn && rc.conn.open) rc.conn.send(JSON.stringify({ t: "mode", v: mode }));
+}
+document.querySelectorAll("#remote-seg button").forEach(b => {
+  b.addEventListener("click", (e) => {
+    e.stopPropagation();
+    ensureAudio();
+    if (rc.recording) return; // ろくがちゅうは切替不可
+    setRemoteMode(b.dataset.mode, true);
+  });
+});
+function setRecUI(on) {
+  rc.recording = on;
+  $("remote-rec-frame").classList.toggle("on", on);
+  $("remote-rec-badge").classList.toggle("on", on);
+}
+
+/* 全画面タップシャッター(連打防止つき) */
+$("tap-area").addEventListener("pointerdown", () => {
+  if (rc.locked || !rc.conn || !rc.conn.open) return;
+  ensureAudio();
+  rc.locked = true;
+  setTimeout(() => { rc.locked = false; }, LOCK_MS);
+  if (rc.mode === "photo") {
+    rc.conn.send(JSON.stringify({ t: "photo" }));
+    doFlash(); playShutter();
+  } else {
+    if (!rc.recording) {
+      rc.conn.send(JSON.stringify({ t: "video-start" }));
+      playBeep(true);
+    } else {
+      rc.conn.send(JSON.stringify({ t: "video-stop" }));
+      playBeep(false);
+    }
+  }
+});
+
+function showLost() {
+  $("remote-lost").classList.add("active");
+}
+$("btn-rejoin").addEventListener("click", () => location.reload());
+$("remote-exit").addEventListener("click", (e) => {
+  e.stopPropagation();
+  if (confirm("リモコンを おわりますか?")) location.reload();
+});
+
+/* ---------- Service Worker ---------- */
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
+}
+</script>
+</body>
+</html>
