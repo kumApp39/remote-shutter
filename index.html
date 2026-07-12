@@ -3,24 +3,28 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-<meta name="theme-color" content="#0b1220">
+<meta name="theme-color" content="#fdf7ec">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="リモートシャッター">
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <title>リモートシャッター</title>
 <style>
   :root {
-    --bg: #0b1220;
-    --panel: #16213a;
-    --text: #f1f5f9;
-    --sub: #94a3b8;
-    --accent: #38bdf8;
-    --accent-deep: #0284c7;
-    --ok: #4ade80;
-    --warn: #fbbf24;
-    --rec: #ef4444;
+    --bg: #fdf7ec;          /* あたたかいクリーム */
+    --panel: #ffffff;
+    --text: #3a4661;
+    --sub: #7c86a0;
+    --accent: #4fc3f7;      /* そらいろ */
+    --accent-deep: #1d8fd6;
+    --orange: #ff9f43;
+    --orange-deep: #f2811d;
+    --ok: #2eb872;
+    --warn: #e8871e;
+    --rec: #ff5252;
+    --line: #e8e2d4;
+    --shadow: 0 4px 14px rgba(90, 80, 60, .12);
   }
   * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body {
@@ -36,32 +40,35 @@
 
   /* ===== モード選択 ===== */
   #screen-start { align-items: center; justify-content: center; gap: 24px; padding: 24px; }
-  #screen-start h1 { font-size: 32px; letter-spacing: 2px; }
+  #screen-start h1 { font-size: 32px; letter-spacing: 2px; color: var(--text); }
   #screen-start p.note { color: var(--sub); font-size: 15px; text-align: center; line-height: 1.6; }
   .mode-btns { display: flex; gap: 20px; width: 100%; max-width: 720px; }
   .mode-btn {
-    flex: 1; min-height: 220px; border-radius: 28px;
+    flex: 1; min-height: 220px; border-radius: 32px;
     background: var(--panel); color: var(--text);
     display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px;
-    font-family: inherit; cursor: pointer; border: 3px solid #24335c;
+    font-family: inherit; cursor: pointer; box-shadow: var(--shadow);
   }
+  #btn-mode-camera { border: 4px solid var(--accent); background: #eaf7fe; }
+  #btn-mode-camera:active { background: #d3effd; }
+  #btn-mode-remote { border: 4px solid var(--orange); background: #fff3e4; }
+  #btn-mode-remote:active { background: #ffe7cb; }
   .mode-btn .emoji { font-size: 64px; }
   .mode-btn .label { font-size: 28px; font-weight: bold; }
   .mode-btn .desc { font-size: 15px; color: var(--sub); }
-  .mode-btn:active { background: #1e2c4f; }
 
   /* ===== 共通部品 ===== */
   .chip {
     display: inline-flex; align-items: center; gap: 8px;
     padding: 8px 16px; border-radius: 999px; font-size: 15px;
-    background: var(--panel); color: var(--sub);
+    background: rgba(255,255,255,.92); color: var(--sub); box-shadow: var(--shadow);
   }
   .chip.ok { color: var(--ok); }
   .chip .dot { width: 10px; height: 10px; border-radius: 50%; background: currentColor; }
   .btn-back {
     position: absolute; top: max(12px, env(safe-area-inset-top)); left: 12px; z-index: 20;
-    background: rgba(22,33,58,.8); color: var(--sub); border: none; border-radius: 12px;
-    padding: 10px 16px; font-size: 15px; font-family: inherit; cursor: pointer;
+    background: rgba(255,255,255,.92); color: var(--sub); border: none; border-radius: 14px;
+    padding: 10px 16px; font-size: 15px; font-family: inherit; cursor: pointer; box-shadow: var(--shadow);
   }
 
   /* ===== カメラ側 ===== */
@@ -73,10 +80,11 @@
     align-items: center; justify-content: center; gap: 12px; pointer-events: none;
   }
   #cam-code-box {
-    background: rgba(11,18,32,.85); border-radius: 24px; padding: 20px 36px; text-align: center;
+    background: rgba(255,255,255,.95); border-radius: 28px; padding: 20px 36px; text-align: center;
+    box-shadow: var(--shadow); border: 3px solid var(--accent);
   }
   #cam-code-box .cap { font-size: 18px; color: var(--sub); margin-bottom: 6px; }
-  #cam-code { font-size: 72px; font-weight: bold; letter-spacing: 12px; color: var(--accent); }
+  #cam-code { font-size: 72px; font-weight: bold; letter-spacing: 12px; color: var(--accent-deep); }
   #cam-code-box .hint { font-size: 14px; color: var(--sub); margin-top: 8px; line-height: 1.5; }
   #cam-status { position: absolute; top: max(12px, env(safe-area-inset-top)); right: 12px; }
   #cam-rec-badge {
@@ -93,14 +101,14 @@
     display: flex; flex-direction: column; gap: 10px;
   }
   .cam-controls { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-  .seg { display: flex; background: var(--panel); border-radius: 14px; padding: 4px; }
+  .seg { display: flex; background: #fff; border-radius: 16px; padding: 4px; box-shadow: var(--shadow); }
   .seg button {
     border: none; background: transparent; color: var(--sub); font-family: inherit;
-    font-size: 17px; font-weight: bold; padding: 12px 22px; border-radius: 10px; cursor: pointer;
+    font-size: 17px; font-weight: bold; padding: 12px 22px; border-radius: 12px; cursor: pointer;
   }
   .seg button.on { background: var(--accent-deep); color: #fff; }
   .toggle-line { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--sub); }
-  .toggle-line input { width: 22px; height: 22px; accent-color: var(--accent); }
+  .toggle-line input { width: 22px; height: 22px; accent-color: var(--accent-deep); }
   #cam-count { margin-left: auto; font-size: 14px; color: var(--sub); }
   #gallery {
     display: flex; gap: 8px; overflow-x: auto; -webkit-overflow-scrolling: touch;
@@ -108,11 +116,11 @@
   }
   #gallery:empty::after {
     content: "とった しゃしん・どうがが ここに ならびます(共有ボタンで iPad に保存できます)";
-    color: #475569; font-size: 13px; align-self: center;
+    color: #b3aa97; font-size: 13px; align-self: center;
   }
   .thumb {
-    width: 96px; height: 72px; flex: 0 0 auto; border-radius: 10px; overflow: hidden;
-    position: relative; border: 2px solid #334155; background: #000; cursor: pointer;
+    width: 96px; height: 72px; flex: 0 0 auto; border-radius: 12px; overflow: hidden;
+    position: relative; border: 3px solid #fff; box-shadow: var(--shadow); background: #000; cursor: pointer;
   }
   .thumb img, .thumb video { width: 100%; height: 100%; object-fit: cover; pointer-events: none; }
   .thumb .vid-mark {
@@ -130,32 +138,32 @@
   #media-modal img, #media-modal video { max-width: 100%; max-height: 100%; border-radius: 12px; }
   .modal-btns { display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; }
   .modal-btns button {
-    border: none; border-radius: 16px; padding: 16px 28px; font-family: inherit;
+    border: none; border-radius: 18px; padding: 16px 28px; font-family: inherit;
     font-size: 18px; font-weight: bold; cursor: pointer;
   }
   .btn-share { background: var(--accent-deep); color: #fff; }
-  .btn-del { background: #7f1d1d; color: #fecaca; }
-  .btn-close { background: var(--panel); color: var(--text); }
+  .btn-del { background: #ffe3e3; color: #d64545; }
+  .btn-close { background: #fff; color: var(--text); }
 
   /* ===== リモコン側: あいことば入力 ===== */
   #screen-join { align-items: center; justify-content: center; gap: 18px; padding: 20px; }
-  #screen-join h2 { font-size: 24px; }
+  #screen-join h2 { font-size: 24px; color: var(--text); }
   #join-display {
     display: flex; gap: 14px;
   }
   .code-slot {
-    width: 56px; height: 72px; border-radius: 14px; background: var(--panel);
+    width: 56px; height: 72px; border-radius: 16px; background: #fff;
     display: flex; align-items: center; justify-content: center;
-    font-size: 40px; font-weight: bold; color: var(--accent);
-    border: 2px solid #334155;
+    font-size: 40px; font-weight: bold; color: var(--orange-deep);
+    border: 3px solid var(--orange); box-shadow: var(--shadow);
   }
   #join-msg { font-size: 16px; color: var(--warn); min-height: 24px; }
   #keypad { display: grid; grid-template-columns: repeat(3, 92px); gap: 12px; }
   #keypad button {
-    height: 76px; border: none; border-radius: 18px; background: var(--panel); color: var(--text);
-    font-size: 32px; font-weight: bold; font-family: inherit; cursor: pointer;
+    height: 76px; border: none; border-radius: 20px; background: #fff; color: var(--text);
+    font-size: 32px; font-weight: bold; font-family: inherit; cursor: pointer; box-shadow: var(--shadow);
   }
-  #keypad button:active { background: #1e2c4f; }
+  #keypad button:active { background: #ffe7cb; }
   #keypad button.fn { font-size: 24px; color: var(--sub); }
 
   /* ===== リモコン側: ビューア ===== */
@@ -171,8 +179,8 @@
   #remote-seg.hidden { display: none; }
   #remote-exit {
     position: absolute; left: 12px; top: calc(8px + env(safe-area-inset-top));
-    pointer-events: auto; background: rgba(22,33,58,.6); color: #64748b;
-    border: none; border-radius: 12px; padding: 12px 14px; font-size: 14px; font-family: inherit;
+    pointer-events: auto; background: rgba(255,255,255,.75); color: #8a93a8;
+    border: none; border-radius: 14px; padding: 12px 14px; font-size: 14px; font-family: inherit;
   }
   #tap-area { position: absolute; inset: 0; }
   #remote-video { width: 100%; height: 100%; object-fit: cover; background: #000; }
@@ -195,19 +203,20 @@
 
   /* 全画面メッセージオーバーレイ */
   .big-overlay {
-    position: absolute; inset: 0; z-index: 30; background: rgba(11,18,32,.92);
+    position: absolute; inset: 0; z-index: 30; background: rgba(253,247,236,.96);
     display: none; flex-direction: column; align-items: center; justify-content: center; gap: 20px; padding: 24px;
     text-align: center;
   }
   .big-overlay.active { display: flex; }
-  .big-overlay .msg { font-size: 26px; line-height: 1.6; }
+  .big-overlay .msg { font-size: 26px; line-height: 1.6; color: var(--text); }
   .big-overlay button {
-    border: none; border-radius: 20px; background: var(--accent-deep); color: #fff;
+    border: none; border-radius: 22px; background: var(--accent-deep); color: #fff;
     font-size: 22px; font-weight: bold; font-family: inherit; padding: 20px 44px; cursor: pointer;
+    box-shadow: var(--shadow);
   }
   .spinner {
     width: 48px; height: 48px; border-radius: 50%;
-    border: 5px solid #334155; border-top-color: var(--accent);
+    border: 5px solid #eadfc8; border-top-color: var(--orange);
     animation: spin 1s linear infinite;
   }
   @keyframes spin { to { transform: rotate(360deg); } }

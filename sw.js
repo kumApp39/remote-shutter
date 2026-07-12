@@ -1,6 +1,6 @@
 // リモートシャッター Service Worker
 // index.html はネットワーク優先(古いビルドが残り続ける事故を防ぐ)、その他はキャッシュ優先
-const CACHE = "remote-shutter-v1";
+const CACHE = "remote-shutter-v2";
 const ASSETS = ["./", "./index.html", "./peerjs.min.js", "./manifest.json", "./icons/icon-192.png", "./icons/icon-512.png"];
 
 self.addEventListener("install", (e) => {
