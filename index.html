@@ -142,6 +142,7 @@
     font-size: 18px; font-weight: bold; cursor: pointer;
   }
   .btn-share { background: var(--accent-deep); color: #fff; }
+  .btn-cast { background: var(--orange); color: #fff; }
   .btn-del { background: #ffe3e3; color: #d64545; }
   .btn-close { background: #fff; color: var(--text); }
 
@@ -197,6 +198,29 @@
     font-size: 16px; font-weight: bold; display: none; align-items: center; gap: 8px; pointer-events: none;
   }
   #remote-rec-badge.on { display: inline-flex; }
+  /* リモコン側: 自動プレビュー(ボタンなし・操作不要) */
+  .mini-spinner {
+    width: 24px; height: 24px; border-radius: 50%;
+    border: 4px solid #e4ddcd; border-top-color: var(--accent-deep);
+    animation: spin 1s linear infinite;
+  }
+  #remote-sending {
+    position: absolute; top: calc(80px + env(safe-area-inset-top)); left: 50%; transform: translateX(-50%);
+    z-index: 35; display: none; align-items: center; gap: 10px;
+    background: rgba(255,255,255,.94); color: var(--sub); border-radius: 999px;
+    padding: 10px 20px; font-size: 16px; box-shadow: var(--shadow); pointer-events: none;
+  }
+  #remote-sending.show { display: inline-flex; }
+  #remote-preview {
+    position: fixed; inset: 0; z-index: 40; background: var(--bg);
+    display: none; align-items: center; justify-content: center;
+    padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom));
+  }
+  #remote-preview.active { display: flex; }
+  #remote-preview img, #remote-preview video {
+    max-width: 100%; max-height: 100%; border-radius: 20px; box-shadow: var(--shadow);
+  }
+
   #flash { position: fixed; inset: 0; background: #fff; opacity: 0; pointer-events: none; z-index: 60; }
   #flash.go { animation: flashAnim .45s ease-out; }
   @keyframes flashAnim { 0% { opacity: 1; } 100% { opacity: 0; } }
@@ -267,6 +291,10 @@
         <input type="checkbox" id="allow-toggle" checked>
         リモコンでも きりかえOK
       </label>
+      <label class="toggle-line">
+        <input type="checkbox" id="auto-show" checked>
+        とったら リモコンに うつす
+      </label>
       <span id="cam-count"></span>
     </div>
     <div id="gallery"></div>
@@ -307,6 +335,8 @@
   </div>
   <div id="remote-rec-badge"><span class="rec-dot"></span>ろくがちゅう</div>
   <div id="remote-hint">がめんの どこを タップしても シャッターが きれるよ</div>
+  <div id="remote-sending"><span class="mini-spinner"></span>おくっています…</div>
+  <div id="remote-preview"></div>
   <div class="big-overlay" id="remote-play-overlay">
     <div class="msg">じゅんびが できました</div>
     <button id="btn-start-view">タップして スタート</button>
@@ -324,6 +354,7 @@
   <div class="media-box" id="modal-media"></div>
   <div class="modal-btns">
     <button class="btn-share" id="modal-share">📤 共有・保存</button>
+    <button class="btn-cast" id="modal-cast">📺 リモコンにうつす</button>
     <button class="btn-del" id="modal-del">けす</button>
     <button class="btn-close" id="modal-close">とじる</button>
   </div>
@@ -481,6 +512,21 @@ function sendToRemote(obj) {
   if (cam.conn && cam.conn.open) cam.conn.send(JSON.stringify(obj));
 }
 
+/* 撮った写真・動画をリモコン側へ転送して全画面表示させる */
+async function sendShow(item, auto) {
+  if (!cam.conn || !cam.conn.open) return false;
+  sendToRemote({ t: "sending" });
+  try {
+    const buf = await item.blob.arrayBuffer();
+    if (cam.conn && cam.conn.open) {
+      cam.conn.send({ t: "show", kind: item.kind, mime: item.blob.type || "", buf: buf, auto: !!auto });
+      return true;
+    }
+  } catch (e) {}
+  sendToRemote({ t: "sending-end" });
+  return false;
+}
+
 function handleRemoteCmd(raw) {
   let msg;
   try { msg = JSON.parse(raw); } catch (e) { return; }
@@ -564,6 +610,7 @@ function addItem(blob, kind) {
   const item = { blob, url: URL.createObjectURL(blob), kind, name };
   cam.items.push(item);
   renderGallery();
+  if ($("auto-show").checked) sendShow(item, true);
 }
 function renderGallery() {
   const g = $("gallery");
@@ -607,6 +654,13 @@ $("modal-share").addEventListener("click", async () => {
     document.body.appendChild(a); a.click(); a.remove();
   }
 });
+$("modal-cast").addEventListener("click", async () => {
+  const item = cam.items[modalIndex];
+  if (!item) return;
+  if (!cam.conn || !cam.conn.open) { alert("リモコンが つながっていません"); return; }
+  await sendShow(item, false);
+  $("media-modal").classList.remove("active");
+});
 $("modal-del").addEventListener("click", () => {
   const item = cam.items[modalIndex];
   if (!item) return;
@@ -628,6 +682,7 @@ $("cam-back").addEventListener("click", () => {
 const rc = {
   peer: null, conn: null, code: "",
   mode: "photo", locked: false, recording: false, allowToggle: true,
+  previewing: false, previewTimer: null, previewUrl: null,
 };
 
 $("btn-mode-remote").addEventListener("click", () => {
@@ -694,6 +749,11 @@ $("btn-start-view").addEventListener("click", () => {
 });
 
 function handleCamMsg(raw) {
+  if (typeof raw !== "string") {
+    // バイナリメッセージ = 撮影データの転送
+    if (raw && raw.t === "show" && raw.buf) showPreview(raw);
+    return;
+  }
   let msg;
   try { msg = JSON.parse(raw); } catch (e) { return; }
   if (msg.t === "mode") setRemoteMode(msg.v, false);
@@ -702,7 +762,60 @@ function handleCamMsg(raw) {
     $("remote-seg").classList.toggle("hidden", !msg.v);
   }
   else if (msg.t === "rec") setRecUI(msg.on);
+  else if (msg.t === "sending") showSending(true);
+  else if (msg.t === "sending-end") showSending(false);
   else if (msg.t === "err") alert(msg.v);
+}
+
+/* ---- 自動プレビュー(児童生徒の操作は不要) ---- */
+const PREVIEW_PHOTO_MS = 5000;   // 写真の表示時間
+const PREVIEW_VIDEO_MAX_MS = 120000; // 動画再生の安全上限
+
+function showSending(on) {
+  $("remote-sending").classList.toggle("show", on);
+}
+function showPreview(m) {
+  showSending(false);
+  closePreview(false);
+  rc.previewing = true;
+  const mime = m.mime || (m.kind === "photo" ? "image/jpeg" : "video/mp4");
+  const blob = new Blob([m.buf], { type: mime });
+  rc.previewUrl = URL.createObjectURL(blob);
+  const box = $("remote-preview");
+  box.innerHTML = "";
+  if (m.kind === "photo") {
+    const img = document.createElement("img");
+    img.src = rc.previewUrl;
+    box.appendChild(img);
+    rc.previewTimer = setTimeout(() => closePreview(true), PREVIEW_PHOTO_MS);
+  } else {
+    const v = document.createElement("video");
+    v.src = rc.previewUrl;
+    v.autoplay = true;
+    v.playsInline = true;
+    v.setAttribute("playsinline", "");
+    v.addEventListener("ended", () => closePreview(true));
+    v.addEventListener("error", () => { rc.previewTimer = setTimeout(() => closePreview(true), 1500); });
+    box.appendChild(v);
+    v.play().catch(() => { v.muted = true; v.play().catch(() => {}); });
+    rc.previewTimer = setTimeout(() => closePreview(true), PREVIEW_VIDEO_MAX_MS); // 安全弁
+  }
+  box.classList.add("active");
+}
+function closePreview(withLock) {
+  if (rc.previewTimer) { clearTimeout(rc.previewTimer); rc.previewTimer = null; }
+  const box = $("remote-preview");
+  box.classList.remove("active");
+  box.innerHTML = "";
+  if (rc.previewUrl) { URL.revokeObjectURL(rc.previewUrl); rc.previewUrl = null; }
+  if (rc.previewing) {
+    rc.previewing = false;
+    if (withLock) {
+      // 不随意運動の連続タップがプレビュー直後の誤撮影にならないよう短時間ロック
+      rc.locked = true;
+      setTimeout(() => { rc.locked = false; }, 800);
+    }
+  }
 }
 function setRemoteMode(mode, notify) {
   rc.mode = mode;
@@ -728,7 +841,7 @@ function setRecUI(on) {
 
 /* 全画面タップシャッター(連打防止つき) */
 $("tap-area").addEventListener("pointerdown", () => {
-  if (rc.locked || !rc.conn || !rc.conn.open) return;
+  if (rc.previewing || rc.locked || !rc.conn || !rc.conn.open) return;
   ensureAudio();
   rc.locked = true;
   setTimeout(() => { rc.locked = false; }, LOCK_MS);
@@ -747,6 +860,8 @@ $("tap-area").addEventListener("pointerdown", () => {
 });
 
 function showLost() {
+  closePreview(false);
+  showSending(false);
   $("remote-lost").classList.add("active");
 }
 $("btn-rejoin").addEventListener("click", () => location.reload());
